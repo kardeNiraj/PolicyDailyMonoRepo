@@ -1,0 +1,61 @@
+services:
+    postgres:
+        image: postgres:16-alpine
+        container_name: policydaily-postgres
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-policydaily}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-policydaily_secret}
+            POSTGRES_DB: ${POSTGRES_DB:-policydaily_db}
+        ports:
+            - '${POSTGRES_PORT:-5432}:5432'
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U ${POSTGRES_USER:-policydaily} -d ${POSTGRES_DB:-policydaily_db}',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    api:
+        build:
+            context: .
+            dockerfile: infrastructure/docker/api.Dockerfile
+            target: dev
+        container_name: policydaily-api
+        restart: unless-stopped
+        ports:
+            - '${PORT:-3000}:3000'
+        environment:
+            PORT: ${PORT:-3000}
+            DATABASE_URL: postgresql://${POSTGRES_USER:-policydaily}:${POSTGRES_PASSWORD:-policydaily_secret}@postgres:5432/${POSTGRES_DB:-policydaily_db}?schema=public
+            DOCUMENT_PROCESSOR_URL: http://document-processor:8000
+        volumes:
+            - ./apps/api/src:/app/apps/api/src
+            - ./apps/api/test:/app/apps/api/test
+            - ./apps/api/prisma:/app/apps/api/prisma
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+    document-processor:
+        build:
+            context: .
+            dockerfile: infrastructure/docker/document-processor.Dockerfile
+        container_name: policydaily-document-processor
+        restart: unless-stopped
+        ports:
+            - '${DOCUMENT_PROCESSOR_PORT:-8000}:8000'
+        volumes:
+            - ./services/document-processor/app:/app/app
+        environment:
+            PORT: 8000
+            ENVIRONMENT: development
+
+volumes:
+    postgres_data:
+        name: policydaily_postgres_data
